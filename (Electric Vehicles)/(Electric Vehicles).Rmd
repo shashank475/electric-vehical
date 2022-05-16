@@ -1,0 +1,824 @@
+---
+title: " (Electric Vehicles)"
+author: Shashank
+  Raja Shekar 
+date: "5/8/2022"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+### *Loading the packages*
+
+```{r, include=TRUE, warning=FALSE, message=FALSE}
+library(knitr)
+library(glmnet)   # for implementing regularized regression
+library(caret)    # for automating the tuning process
+library(tidyverse)
+library(modelr)
+library(glmnet)
+library(randomForest)
+library(keras)
+library(tfdatasets)
+library(lubridate)
+library(plyr)
+library(zipcodeR)
+library(rgdal)
+library(usa)
+library(usmap)
+library(extrafont)
+library(xts)
+library(tsbox)
+library(forecast)
+```
+
+
+# **Introduction**
+
+## Background
+
+Electric vehicles (EV’s) are vehicles that are powered by electricity as opposed to liquid fuels like gasoline. There are several technologies for EV’s, however, in this project we will focus 1) Battery electric vehicle (BEV), which is all electric, and 2) Plug-in hybrid electric vehicle (PHEV), which is a vehicle that runs on electricity and gasoline engine [1]. 
+
+In general, EVs’ have lower operating costs and emit fewer pollutants than their petrol or diesel counterparts, making them friendlier towards the environment and more sustainable. As efforts to decrease the effects of climate change are undertaken, investments in EV technology have skyrocketed with a global market size of $260B in 2020 and expected to reach $1,046B in 2026  [2]. Moreover, EV’s have become more prevalent nowadays in the US due to its lower operating cost, and more environmentally friendly with almost no emissions when compared to cars that run using gasoline. The number of EV’s in the US is 1,778,080  in 2020 [3] and it is expected that the penetration rate of EV's in North America will increase by 10% in 2025 and 30% in 2030, in addition the number of EVs [4].  In addition, the number of EV’s in New York is almost 100 thousand, with a compound annual growth rate (CAGR) of %29 starting for the period 2012-2021 [5]. 
+
+Carbon emissions are known to have negative impacts on the environment and human health. To understand the environmental impact of vehicles that are powered using liquids fuels; in 2019, transportation in New York contributes to around 47% of carbon emissions in the state [6],  with a value of 79.8M metric tons of carbon dioxide (Mt CO2) [7],  which puts New York as the fourth highest state in total carbon emissions from transportation. It is believed that EV’s will help reduce carbon emissions and help protect the environment, and as a result as 2021 there are 47 states in U.S. offer incentives and support the use of EVs and its infrastructure [8]. Moreover, President Biden, Department of Energy, and Department of Transportation announced a “National EV Charging Network” with a budget of $5B, which will be developed in the next 5 years in hopes to increase EVs adoption in the U.S. [9].
+
+## Motivation
+
+Given the background in the section above, the objective of this project is to forecast the demand and adoption of EVs in New York, and its future environmental implications and emissions. Hence, it is important to deep-dive and investigate the implications of the potential increase in the adoption of EV’s in New York, which will allow policy makers and the local government in New York to act proactively and draft the most suitable plans with an aim to protect the welfare and wellbeing of the residents of New York and protect and environment in the state, and possibly be the leading state in EV adoption.
+
+# **Methods**
+
+## Research Question
+
+Several key questions will be investigated using the given data. In the beginning, we need to find the prediction of the EV population in New York State in the coming years based on the actual data on the EV population in New York State. Then, we can find the impact of using the EVs in New York State on several metrics; for instance, we will find the expected annual greenhouse gasses (GHG) emissions reductions (MT CO2e) in New York state. Moreover, as the number of EVs increases, there will be an impact on gasoline consumption; hence, we will find the annual petroleum reductions (gallons) in New York state. Reducing gasoline consumption will reduce CO2 emissions since the gasoline-burning process will generate several toxic gasses, and CO2 is one of them. A rebate budget is one of the incentives used to motivate the consumer to use the EVs; hence, the amount of the rebate budget might affect consumers' decision-making. We can summarize these questions as follows: 
+ 
+  - What is the prediction of the EV population in New York State by 2040? 
+  - How much will be the annual reduction of petroleum (gallons) in New York State by 2040? 
+  - How much will the annual GHG emissions reductions (MT CO2e) in New York State be by 2040? 
+  
+  
+
+
+## Dataset
+### Importing and filtering the dataset
+
+```{r, include=TRUE, warning=FALSE, message=FALSE}
+
+Data1 <- read_csv("EV.csv")
+reg.data1<- Data1 %>%drop_na()
+reg.data3 <- reg.data1 %>%
+  filter(reg.data1$`Annual GHG Emissions Reductions (MT CO2e)`  >= 0)
+
+
+zip <- (reg.data3$ZIP)
+ZC = data.frame(zip)
+
+zip<-as.character(ZC$zip)
+
+data_ev<-mutate(reg.data3, zip1 = zip )
+
+#head(zip_code_db)
+zip_code_db_selected =
+  zip_code_db %>% 
+  select(zipcode,lat,lng)
+
+reg.data4 = left_join(data_ev, zip_code_db_selected, by = c("zip1" = "zipcode"))
+
+reg.data4 <- reg.data4%>%select(-c(zip1))
+reg.data4$Make <- as.factor(reg.data4$Make)
+
+X <- data.matrix(reg.data4[, c('Make',"EV Type","Transaction Type","Annual Petroleum Reductions (gallons)","Model")])
+y <- reg.data4$`Annual GHG Emissions Reductions (MT CO2e)`
+
+X1 <- data.matrix(reg.data4[, c('Make',"EV Type","Transaction Type","Rebate Amount (USD)")])
+y1 <- reg.data4$`Annual Petroleum Reductions (gallons)`
+
+summary(reg.data4)
+
+```
+
+The preliminary analysis of the data set will be looking into the growing trend of the BEVs and PHEVs population in New York state from 2017 to 2022 and predicting future trends in reducing greenhouse gas (CO2) and petroleum. Moreover, we will also predict how much budget the government will need to increase on the EVs and PHEVs purchase rebate to keep up with consumers' demand and interest in purchasing EVs and PHEVs. The dataset shows how, when, and where consumers buy electric vehicles and take advantage of the rebate. The dataset contains two main statistics; the first contains information on the most popular models and technologies, the sales for each, when the consumer claimed their rebate, etc. The second portion of the dataset contains information related to the rebate by ZIP code and county level. In our dataset, we have 62646 observations and 11 variables. Moreover, two columns were added to the dataset: the longitude (X) and latitude (Y) for each ZIP code. The reason for this is to build the heatmap of rebate recipients in the New York state.
+ 
+Firstly, to analyze EVs data, we have to find out how many columns and numbers of entries are present in the dataset. The raw data we will use consists of 62646 observations and 11 variables. During the preliminary analysis, we found that there were some missing values and there are some irrational numbers that existed in our observations, so we filtered the data set and then started working on analyzing the data. Some observations have negative values for the variable "Annual GHG Emissions Reductions (MT CO2e)," which doesn't make sense; hence, we filtered our dataset to include just the positive values in this variable. The cleaned dataset has 61087 observations (rows). The dataset contains four out of 11 numeric variables, and all these variables are continuous. In addition, five of the variables are categorical. The list of these variables is shown in the table below.
+
+
+```{r}
+
+table <- data.frame(Varibales = c("Data Through Date", "Submitted Date", "Make",
+"Model", "County", "ZIP", "Longitude(X)", "Latitude (Y)", "EV Type", 
+"Transaction Type","Annual GHG Emissions Reductions (MT CO2e)", "Annual Petroleum Reductions (gallons)",
+"Rebate Amount (USD)"), Defention = c("The date that the data are through", 
+"Rebate application submission date (Purchasing date)", "Manufacturer of the automobile", 
+"The type of model of the EV", "Name of county in New York State", "ZIP code of rebate recipients", 
+"The longitude coordination of the rebate recipient (elicited from the ZIP code)", 
+"The latitude coordination of the rebate recipient (elicited from the ZIP code)", 
+"The EV technology, BEV or PHEV", "Two types of transactions are purchase and lease",
+"The annual reduction of CO2 emission in (Metric Tons)", 
+"The annual reduction of petroleum consumption in gallons", 
+"The amount of rebate that will be deducted from the purchasing price" ))
+
+kable(table, caption = "Dataset variables and their defintion")
+
+
+
+
+```
+
+## Basic EDA
+
+We used a variety of visual representations of data, including a histogram, a barplot, and a boxplot for clear data understanding. Moreover, the basic EDA will assist us in figuring out if there are any outliers or strange values that exist in our dataset. EDA will guide us to use the proper modeling method that fits our dataset. In addition, it will summarize the main characteristics of our dataset. 
+
+
+```{r, include=TRUE, warning=FALSE, message=FALSE}
+reg.data3 <- reg.data3 %>%
+  filter(reg.data3$`Annual GHG Emissions Reductions (MT CO2e)`  >= 0)
+
+ggplot(reg.data3) + 
+  geom_bar(aes(x = `EV Type`, y = ..prop.., group = 1), width = 0.4)+
+  theme_classic() +
+  theme(
+    plot.title = element_text(family = "Times New Roman", hjust = 0.5),
+    axis.text = element_text(family = "Times New Roman",face = "bold"),
+    axis.title = element_text(family = "Times New Roman", face = "bold")
+  ) +
+  coord_cartesian(ylim = c(0, 0.6))+
+  labs(title = "EV Type Percentage", x = "EV Type", y = "Propotion")
+```
+
+The EV type percentage figure shows that around 55% of the EVs are BEV which means that these vehicles are battery-powered and don’t have gasoline or diesel engine and instead have an electric motor. The PHEV is a vehicle that uses electric and other power sources (hybrid). It contributed to 45% of the total EVs that are subsidies through the Drive Clean Rebate, which means that people prefer BEV over the PHEV. 
+
+```{r, include=TRUE, warning=FALSE, message=FALSE}
+ggplot(reg.data3) + 
+  geom_bar(aes(x = `Rebate Amount (USD)`, y = ..prop.., group = 1))+
+   theme_classic() +
+  theme(
+    plot.title = element_text(family = "Times New Roman", hjust = 0.5),
+    axis.text = element_text(family = "Times New Roman",face = "bold"),
+    axis.title = element_text(family = "Times New Roman", face = "bold")
+  ) +
+  coord_cartesian(ylim = c(0, 0.4))+
+  labs(title = "Rebate Amount (USD) Percentage", x = "Rebate Amount (USD)", 
+       y = "Propotion")
+```
+
+
+The highest number of consumers received $2000 with around 40%, followed by the people who received $1100 with a percentage of 25%. The lowest number of consumers got a rebate amount of $1000, which contributed to 5% of the total number of rebates.
+
+```{r, include=TRUE, warning=FALSE, message=FALSE}
+ggplot(reg.data3) + 
+  geom_histogram(aes(x = `Annual GHG Emissions Reductions (MT CO2e)`), bins = 90)+
+  theme_classic() +
+  theme(
+    plot.title = element_text(family = "Times New Roman", hjust = 0.5),
+    axis.text = element_text(family = "Times New Roman",face = "bold"),
+    axis.title = element_text(family = "Times New Roman", face = "bold")
+  ) +
+  coord_cartesian(ylim = c(0, 15000))+
+  labs(title = "Annual GHG Emissions Reductions (MT CO2e) Distribution", 
+       x = "Annual GHG Emissions Reductions (MT CO2e)", y = "Number of EVs")
+```
+
+
+The annual GHG emissions reductions figure shows the distribution of the annual reduction of the CO2 of the EVs that benefit from the rebate. As we can notice, a large portion of the EVs has three metric tons of CO2 reduction annually. Moreover, most EVs have the reduction of two metric tons of CO2 or more annually. The results are expected since the clean drive rebate program aims to motivate consumers to buy green vehicles which have a low impact on the environment.
+
+
+```{r, include=TRUE, warning=FALSE, message=FALSE}
+ggplot(reg.data3) + 
+  geom_histogram(aes(x = `Annual Petroleum Reductions (gallons)`), bins = 90)+
+  theme_classic() +
+  theme(
+    plot.title = element_text(family = "Times New Roman", hjust = 0.5),
+    axis.text = element_text(family = "Times New Roman",face = "bold"),
+    axis.title = element_text(family = "Times New Roman", face = "bold")
+  ) +
+  coord_cartesian(ylim = c(0, 40000))+
+  labs(title = "Annual Petroleum Reductions (gallons) Distribution", x = 
+         "Annual Petroleum Reductions (gallons)", y = "Number of EVs")
+
+```
+
+
+
+The annual petroleum reductions figure shows the distribution of the annual reduction of the petroleum of the EVs that benefit from the rebate. As we can notice, a large portion of the EVs has around 580 gallons of petroleum reduction annually. Moreover, most EVs have a reduction of 400 gallons of petroleum or more annually. The results are expected since the clean drive rebate program aims to motivate consumers to buy green vehicles which have a low impact on the environment.
+
+
+```{r, include=TRUE, warning=FALSE, message=FALSE}
+ggplot(data = reg.data3, aes(x = `EV Type`, y = `Annual GHG Emissions Reductions (MT CO2e)`)) +
+  geom_boxplot() +
+  theme_classic() +
+  theme(
+    plot.title = element_text(family = "Times New Roman", hjust = 0.5),
+    axis.text = element_text(family = "Times New Roman", face = "bold"),
+    axis.title = element_text(family = "Times New Roman", face = "bold"),
+    legend.title = element_blank(),
+    legend.text = element_text(family = "Times New Roman")
+    
+  ) +
+  labs(title = "Annual GHG Emissions Reductions (MT CO2e) by EV Type", x = "EV Type", y = "Annual GHG Emissions Reductions (MT CO2e)" )
+```
+
+
+The CO2 emissions reductions by EV type show the range of annual reduction of CO2 emissions for each type of EV. AS we can notice, the PHEV type has a wider range of annual CO2 emission reductions which means that the model of PHEV will impact the annual reduction of CO2. On the other hand, the BEV has a narrower range than the PHEV. Generally, the BEV significantly affects CO2 reduction emissions than the PHEV.
+
+
+## Models
+
+Using various models, the relationship between EV purchases and CO2 emissions will be evaluated. It is anticipated that an increase in EVs will lead to a reduction in CO2 emissions and petroleum consumption since EVs use other energy sources to run. 
+
+### Model 1: GeoPlot
+
+The dataset contains information about the locations where different cars were purchased. A geoplot enables zip codes and purchases to be paired, meaning it is possible to visualize the location of a car purchase laid over a map of New York State. It is expected to see more electric vehicle purchases near larger cities due to population density and due to socioeconomic status enabling environmental education, car purchases, and access to electric energy.
+
+```{r, warning = FALSE, message = FALSE}
+
+
+
+plot_usmap(regions = "counties",include = c( "NY")) +labs(title = "New York state") +theme(panel.background = element_rect(color = "blue"))
+
+reg.data4 %>%ggplot(aes(lng, lat)) + geom_polygon(color = NA) +coord_map(projection = "albers", lat0 = 390, lat1 = 450) +
+  labs(fill = "Make",title = "New York state")+
+  geom_point(aes(color = Make))
+
+```
+
+### Model 2: Linear Regression
+
+Linear regression is a linear approach for modeling the relationship between two variables. Since the goal of this project is to explore the impact of EV purchases on the reduction of carbon dioxide emissions, utilizing a linear regression that models GHG emissions against EV type would be most useful. It would be predicted that an increase in EV purchases would decrease the GHG emissions because of a lower need for gasoline. However, as EV purchases could ebb and flow due to a variety of factors like seasonal sales or political events, it is anticipated that this model may not be the most accurate. In this project, accuracy of the fitting will be determined by calculating the r-squared value.
+
+# Annual GHG Emissions Reductions (MT CO2e) linear model
+
+```{r, warning = FALSE, message = FALSE}
+
+#liner model for Annual GHG Emissions Reductions CO2
+
+Liner_model1_CO2 <- lm(reg.data4$`Annual GHG Emissions Reductions (MT CO2e)`~reg.data4$`EV Type`+reg.data4$`Transaction Type`+ reg.data4$Make+reg.data4$`Rebate Amount (USD)`, data=reg.data4)
+
+
+
+summary(Liner_model1_CO2)
+```
+
+# Annual Petroleum Reductions (gallons) linear 
+
+```{r, warning = FALSE, message = FALSE}
+
+#linear model for Annual Petroleum Reductions (gallons)
+
+Linear_model1_petrol <- lm(reg.data4$`Annual Petroleum Reductions (gallons)`~reg.data4$`EV Type`+reg.data4$`Transaction Type`+ reg.data4$Make+reg.data4$`Rebate Amount (USD)`, data=reg.data4)
+
+summary(Linear_model1_petrol)
+```
+
+### Model 3: Ridge,LASSO,Elastic Net Regressions
+
+Elastic net regressions are models that add a penalty term to the loss function of an otherwise linear regression to promote selection of smaller coefficients when training the model. This avoids the common pitfall of linear regression models where the coefficients become too large when there are not enough points in the regression. There are two types of penalties for large coefficients: L1 and L2. L1 is based on the sum of absolute coefficient values. L2 minimizes the sizes of all coefficients but it also prevents coefficients from being removed from the model. Alpha is a factor that is used to weigh both possible penalties, and alpha can be between 0 and 1. Alpha gives the weight to the L1 penalty and 1 - alpha weight is given to the L2 penalty. Two alpha values will be used in this project: 0 and 1.
+# Annual GHG Emissions Reductions (MT CO2e) ridge, Lasso ,elastic 
+
+```{r, results = "hide", warning = FALSE, message = FALSE}
+
+# ridge model for Co2
+
+(ridge.mod_CO2 <- glmnet(X, y, alpha = 0))
+# Cross-validation to select lambda
+cv.ridge1_CO2 <- cv.glmnet(X, y, alpha = 0) 
+(bestlambda_CO2_ridge <- cv.ridge1_CO2$lambda.min)
+ridge.mod2_CO2 <- glmnet(X, y, alpha = 0, lambda = bestlambda_CO2_ridge)
+
+y_predicted_CO2_ridge <- predict(ridge.mod2_CO2, s = bestlambda_CO2_ridge, newx = X)
+
+#find SST and SSE
+sst <- sum((y - mean(y))^2)
+sse <- sum((y_predicted_CO2_ridge - y)^2)
+
+#find R-Squared
+rsq_CO2_ridge <- 1 - sse/sst
+
+# Lasso model for Co2
+
+
+(Lasso.mod_CO2 <- glmnet(X, y, alpha = 1))
+
+Lasso_cv_model_CO2 <- cv.glmnet(X, y, alpha = 1)
+
+#find optimal lambda value that minimizes test MSE
+bestlambda_CO2_Lasso <- Lasso_cv_model_CO2$lambda.min
+
+
+Lasso_cv_model_CO2_best <- glmnet(X, y, alpha = 1, lambda = bestlambda_CO2_Lasso)
+y_predicted_CO2_Lasso <- predict(Lasso_cv_model_CO2_best, s = bestlambda_CO2_Lasso, newx = X)
+
+#find SST and SSE
+sst <- sum((y - mean(y))^2)
+sse <- sum((y_predicted_CO2_Lasso - y)^2)
+
+#find R-Squared
+rsq_CO2_Lasso <- 1 - sse/sst
+
+
+#elastic model
+(elastic.mod_CO2 <- glmnet(X, y, alpha = 0.5))
+# we used train Control
+control <- trainControl(method = "repeatedcv",number = 5,repeats = 1,search = "random",verboseIter = TRUE)
+  
+# Training ELastic Net Regression model
+elastic_model_Co2_best <- train(X,y,method = "glmnet",preProcess = c("center", "scale"),tuneLength = 15,trControl = control)
+elastic_model_Co2_best$bestTune
+
+y_predicted_CO2_elastic <- predict(elastic_model_Co2_best, s =elastic_model$bestTune , newx = X)
+
+#find SST and SSE
+sst <- sum((y - mean(y))^2)
+sse <- sum((y_predicted_CO2_elastic - y)^2)
+
+#find R-Squared
+rsq_CO2_elastic <- 1 - sse/sst
+```
+
+# Annual Petroleum Reductions (gallons)  ridge, Lasso ,elastic 
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+```{r, results = "hide", warning = FALSE, message = FALSE}
+
+
+
+# ridge model for Annual Petroleum Reductions (gallons)
+(ridge.mod_petrol <- glmnet(X1, y1, alpha = 0))
+# Cross-validation to select lambda
+cv.ridge1_petrol <- cv.glmnet(X1, y1, alpha = 0) 
+(bestlambda_petrol_ridge <- cv.ridge1_petrol$lambda.min)
+
+
+ridge.mod2_petrol <- glmnet(X1, y1, alpha = 0, lambda = bestlambda_petrol_ridge)
+
+
+y_predicted_petrol_ridge <- predict(ridge.mod2_petrol, s = bestlambda_petrol_ridge, newx = X1)
+
+#find SST and SSE
+sst <- sum((y1 - mean(y1))^2)
+sse <- sum((y_predicted_petrol_ridge - y1)^2)
+
+#find R-Squared
+rsq_ridge.mod_petrol <- 1 - sse/sst
+rsq_ridge.mod_petrol
+
+#lasso petrol
+(Lasso.mod_petrol <- glmnet(X, y, alpha = 1))
+Lasso_cv_model_petrol <- cv.glmnet(X1, y1, alpha = 1)
+
+#find optimal lambda value that minimizes test MSE
+bestlambda_petrol_Lasso <- Lasso_cv_model_petrol$lambda.min
+
+
+lasso_best_model_petrol <- glmnet(X1, y1, alpha = 1, lambda = bestlambda_petrol_ridge)
+
+
+
+y_predicted_petrol_Lasso <- predict(lasso_best_model_petrol, s = bestlambda_petrol_ridge, newx = X1)
+
+#find SST and SSE
+sst <- sum((y1 - mean(y1))^2)
+sse <- sum((y_predicted_petrol_Lasso - y1)^2)
+
+#find R-Squared
+rsq_petrol_Lasso <- 1 - sse/sst
+
+
+#elastic model for petrol reduce
+
+(elastic.mod_petrol <- glmnet(X1, y1, alpha = 0.5))
+control <- trainControl(method = "repeatedcv",number = 5,repeats = 1,search = "random",verboseIter = TRUE)
+  
+# Training ELastic Net Regression model
+elastic_model_petrol_best <- train(X1,y1,method = "glmnet",preProcess = c("center", "scale"),tuneLength = 15,trControl = control)
+
+y_predicted_petrol_elastic <- predict(elastic_model_petrol_best, s =elastic_model_petrol_best$bestTune , newx = X1)
+
+#find SST and SSE
+sst <- sum((y1 - mean(y1))^2)
+sse <- sum((y_predicted_petrol_elastic - y1)^2)
+
+#find R-Squared
+rsq_elastic_petrol <- 1 - sse/sst
+
+```
+
+### Model #4: Random Forest
+
+The random forest model is a decision tree algorithm. It splits the data into classifications then utilizes an algorithm to predict where new points of data will land. In this project, CO2 reduction and petroleum emissions will be modeled with random forest to generate models that can predict future CO2 reduction and petroleum emissions. 
+# Annual GHG Emissions Reductions (MT CO2e)
+```{r, results = "hide", warning = FALSE, message = FALSE}
+#randomForest
+(rf1 <- randomForest(x = X, y = y,ntree = 500, mtry = floor(sqrt(ncol(X))),nodesize = 5,maxnodes = NULL))
+
+#Cross validation
+random_model_CO2 <- train(X,y,method = "rf",preProcess = c("center", "scale"),tuneLength = 15,trControl = control)
+
+#predicting value for random forest
+y_predicted_CO2_randomforest <- predict(random_model_CO2, s =random_model_CO2$bestTune , newx = X)
+#find SST and SSE
+sst <- sum((y - mean(y))^2)
+sse <- sum((y_predicted_CO2_randomforest - y)^2)
+
+#find R-Squared
+rsq_CO2_randomForest <- 1 - sse/sst
+
+```
+
+
+## Annual Petroleum Reductions (gallons) randomforest
+```{r, results = "hide", warning = FALSE, message = FALSE}
+#randomForest
+(rf1 <- randomForest(x = X1, y = y1,ntree = 500, mtry = floor(sqrt(ncol(X1))),nodesize = 5,maxnodes = NULL))
+#cross validation for random forest
+random_model_petrol <- train(X1,y1, method = "rf", preProcess = c("center", "scale"), tuneLength = 15,trControl = control)
+#prediction of randomforest
+y_predicted_petrol_randomforest <- predict(random_model_petrol, s =random_model_petrol$bestTune , newx = X1)
+
+
+#find SST and SSE
+sst <- sum((y1 - mean(y1))^2)
+sse <- sum((y_predicted_petrol_randomforest - y1)^2)
+#find R-Squared
+rsq_randomForest_petrol <- 1 - sse/sst
+```
+
+### Model #5: Time Series Forecasts with Arima and Holt-Winters Models
+Once the models predicting the CO2 reduction are generated, these can then be used to forecast CO2 reduction into the future. This is done through a time series model. It looks at how an object behaves over time and expands that to predict how that object may change in the future. Using this, it is possible to look into the future and try to predict the reduction in petroleum consumption as the number of EVs change. 
+The AutoRegressive Integrated Moving Average model (Arima) is another time series forecasting model that uses a maximum likelihood estimation to maximize the log-likelihood for given values of p, d, and q when finding parameter estimates, generating a predictive model for the future. It assumes that data is stationary and univariate, then uses the data inputted to generate a time series. The Arima model uses different types of exploratory analysis to look at the autocorrelation, cyclic nature, and trend estimation of the data, yielding the final forecast with 4 components: the actual data plot, the trend, any seasonal dependencies of the data, and any random or unexplainable parts of the data. This method was also used to model the future change in the number of EV’s and in CO2 and petroleum reduction. 
+The Holt-Winters function acts in a similar way as the Arima model, where it deconstructs the data into 4 different components. However, the function correlates three variables – alpha, beta, and gamma – to place different emphasis on these components. Alpha places more emphasis on the recent observations. The beta term is related to the trend slope and places more emphasis on that in the model. The gamma term is the seasonal component and places more weight on the seasonal aspect of the data. These three parameters are fine tuned with the Holt-Winters function to predict a variable. In this case, this method will also be predicting the change in the number of EV’s and the Co2 and petroleum reduction. 
+
+
+#time series modeling for Number of EV vehical
+```{r, results = "hide", warning = FALSE, message = FALSE}
+reg.data6<-reg.data3
+reg.data6$`Submitted Date` <- mdy(reg.data6$`Submitted Date`)
+
+colnames(reg.data6)[2]<- "SubmitDate"
+
+#calculating Number of Ev vahical for 2017 to 2022 
+newdata2 <-reg.data6%>%group_by(SubmitDate)%>%dplyr::summarize(unique(Make), N = n())
+#head(newdata2)
+
+x=pivot_wider(newdata2, names_from = c("unique(Make)"), values_from = c("N"))
+x[is.na(x)] <- 0
+#head(x)
+x$row_sum = rowSums(x[,c(2:22)])
+
+#constructing and assigning dates for each count of vehical
+historical_NumberOfEV = xts(x[,c("row_sum")], order.by=as.Date((x$SubmitDate)))
+historical_NumberOfEV = ts_regular(historical_NumberOfEV)
+
+
+#filing the missing vehicle number in particular date with average number of vehicle
+historical_NumberOfEV = na.fill(historical_NumberOfEV, "extend")
+
+
+historical_NumberOfEV = window(historical_NumberOfEV, start=as.Date("2017-04-01"), end=as.Date("2022-02-01"))
+#ETS Model
+EVstimeseries <- ts(historical_NumberOfEV$value, frequency=60, start=c(2017,4), end = c(2022,2))
+EVstimeseriescomponents <- decompose(EVstimeseries)
+
+EVstimeseriesseasonallyadjusted <- EVstimeseries - EVstimeseriescomponents$seasonal
+
+ 
+ #arima model of number of ev vehicle
+ arima.model_NumberOf_Vehical = arima(EVstimeseries, order = c(5,0,1), seasonal = list(order=c(0,1,0)))
+
+arima.tmax_NumberOf_Vehical = forecast(arima.model_NumberOf_Vehical, 1825)
+
+ #HoltWinters model of number of ev vehical
+ rainseriesforecasts_NofVh <- HoltWinters(EVstimeseries, beta=FALSE, gamma=FALSE)
+
+
+
+```
+
+# Annual GHG Emissions Reductions Co2 timeseries model
+
+```{r, results = "hide", warning = FALSE, message = FALSE}
+
+
+reg.data5<- reg.data4
+reg.data5$`Submitted Date` <- mdy(reg.data5$`Submitted Date`)
+unidff <- reg.data5[!duplicated(reg.data5$`Submitted Date`), ]
+
+historical_C_P = xts(unidff[,c("Annual GHG Emissions Reductions (MT CO2e)","Annual Petroleum Reductions (gallons)","Rebate Amount (USD)")], order.by=as.Date((unidff$`Submitted Date`)))
+
+historical_C_P = ts_regular(historical_C_P)
+historical_C_P = na.fill(historical_C_P, "extend")
+historical_C_P = window(historical_C_P, start=as.Date("2017-04-01"), end=as.Date("2022-02-01"))
+#ETS model
+CO2timeseries <- ts(historical_C_P$`Annual GHG Emissions Reductions (MT CO2e)`, frequency=60, start=c(2017,4), end = c(2022,2))
+
+CO2timeseriescomponents <- decompose(CO2timeseries)
+CO2timeseriesseasonallyadjusted <- CO2timeseries - CO2timeseriescomponents$seasonal
+ #HoltWinters model of Annual GHG Emissions Reductions Co2
+ rainseriesforecasts_CO2 <- HoltWinters(CO2timeseries, beta=FALSE, gamma=FALSE)
+
+
+ #arima model of Annual GHG Emissions Reductions Co2
+arima.model_CO2 = arima(CO2timeseries, order = c(5,0,1), seasonal = list(order=c(0,1,0)))
+
+arima.tmax_CO2 = forecast(arima.model_CO2, 1825)
+
+```
+
+# time series model for  Annual Petroleum Reductions (gallons) Modeling
+
+```{r, results = "hide", warning = FALSE, message = FALSE}
+# ETS model
+Petroltimeseries <- ts(historical_C_P$`Annual Petroleum Reductions (gallons)`, frequency=60, start=c(2017,4), end = c(2022,2))
+Petroltimeseriescomponents <- decompose(Petroltimeseries)
+
+
+Petroltimeseriesseasonallyadjusted <- Petroltimeseries - Petroltimeseriescomponents$seasonal
+
+# hotWinter model of Annual Petroleum Reductions (gallons)
+ rainseriesforecasts_petrol <- HoltWinters(Petroltimeseries, beta=FALSE, gamma=FALSE)
+
+
+# airma.model of Annual Petroleum Reductions (gallons)
+arima.model = arima(Petroltimeseries, order = c(5,0,1), seasonal = list(order=c(0,1,0)))
+
+arima.tmax = forecast(arima.model, 1825)
+
+
+
+```
+
+# **Results**
+
+## Model Summary
+
+# number of EV vehicle 
+
+We constructed only a time series model for the analysis of the Number of EV vehicles. which helps forecast the number of vehicles in the next 20 years. For this, we constructed Hotwinter, Arima, and ETS models to understand the number of vehicles present according to time interval. Summary of Arima model provides Log-likelihood, AIC and training set RMSE values.
+Arima model AIC value is 2827.22. Summary of HoltWinters model provides alpha, beta coefficient value for the model.
+
+```{r, warning = FALSE, message = FALSE}
+summary(arima.model_NumberOf_Vehical)
+summary(rainseriesforecasts_NofVh)
+```
+
+
+## Annual Petroleum Reductions (gallons)
+
+For modeling the annual Petroleum Reductions, we take the similar approach that we use on modeling annual GHG Emissions Reductions CO2. We worked on time series models of Hotwinter Arima and ETS to forecast what the Annual petroleum reduction in the future will increase as time increases. We also applied linear, ridge, lasso, elastic and random forest models in our approach. 
+For the Linear model we choose predictors of EV Type, Transaction Type, Make, and Rebate Amount (USD). The R-square value for the linear model is 0.90.
+For ridge, lasso, elastic net, and random forest we used the same predictors that were used in the Linear model
+The ridge model has the R-squre=0.74, the Lasso model has the R-squre=0.72, the elastic model has the R-squre=0.74, and the RandomForest model has the R-squre=0.98. 
+For the Hyperparameter tuning, We tuned Hyper-parameter for ridge, Lasso, elastic, and random-forest using cross-validation. Ridge's best lambda value is 8. Lasso's best lambda value is0.005. Elastic's best lambda value is .0.03and alpha is 0.76. Random forest's best value is 3.
+
+
+# best hyperparameter tunning
+```{r, warning = FALSE, message = FALSE}
+#ridge
+bestlambda_petrol_ridge
+#lasso
+bestlambda_petrol_Lasso
+#elastic
+elastic_model_petrol_best$bestTune
+#random
+random_model_petrol$bestTune
+```
+
+# Predicted MSE value 
+```{r, warning = FALSE, message = FALSE}
+#ridge
+rsq_ridge.mod_petrol
+#elastic
+rsq_elastic_petrol
+#lasso
+rsq_petrol_Lasso
+#randomForest
+rsq_randomForest_petrol
+```
+
+## Annual GHG Emissions Reductions Co2
+
+The analysis of our constructed time series model of Hotwinter, Arima, and ETS model to predict how much reduction will be in the next 20 years (or in the year 2040). We also constructed Linear, ridge, Lasso, elastic net, and random forest for CO2 reduction. We modeled linear regression using predictors like EV type, transaction type, make, and rebate Amount (USD) which all help in predicting models. The R-squared value, which is 0.72, is the most significant which gives less error in the model.
+For Lasso elastic net, ridge, and random forest we used predictors such as EV type, transaction type, annual Petroleum reductions (gallons), and Model.
+The ridge model has the R-square of 0.57, the Lasso model has the R-square of 0.60, the elastic model has the R-square of 0.60, and the Random Forest model has the R-squared=0.97. 
+For the Hyperparameter tuning, we tuned Hyper-parameter for ridge, Lasso, elastic, and random-forest using cross-validation. Ridge's best lambda value is 0.036. Lasso's best lambda value is 0.00053. Elastic's best lambda value is 0.003, and alpha is 0.17. Random forest's best value is 5.
+
+
+# best hyperparameter tunning
+```{r, warning = FALSE, message = FALSE}
+#ridge
+bestlambda_CO2_ridge
+#lasso
+bestlambda_petrol_Lasso
+#elastic
+elastic_model_Co2_best$bestTune
+#randomforest
+random_model_CO2$bestTune
+```
+
+# Predicted MSE value 
+```{r, warning = FALSE, message = FALSE}
+#ridge
+rsq_CO2_ridge
+#elastic
+rsq_CO2_elastic
+#lasso
+rsq_CO2_Lasso
+#random forest
+rsq_CO2_randomForest
+```
+
+
+## Plots/tables of the results
+
+#Decomposition of additive time series
+
+We can first look at the decomposition of additive time series of the annual CO2 reduction, annual petroleum reduction and growth of EV number.
+We can see an obvious downward trend moving from 2017 to 2021 in both annual CO2 reduction and annual petroleum reduction but upward trend in numbers of EV. Seasonal time series indicated that a certain season each year has significant drop on CO2 and Petroleum from 2017 to 2021.
+
+```{r, warning = FALSE, message = FALSE}
+# number of EV vehicle 
+plot(EVstimeseriescomponents)
+
+# Annual GHG Emissions Reductions Co2 timeseries
+plot(CO2timeseriescomponents)
+
+# Annual Petroleum Reductions (gallons) 
+plot(Petroltimeseriescomponents)
+
+```
+
+#Forecasts from STL+ETS(A,N,N)
+
+CO2: In this forecast, we see the trend of annual CO2 is moving downward. The boundary has slightly increased, but not by much. It stays roughly between 1.4 to 3.7 metric tons.
+The trend of annual CO2 is moving downward. The boundary has slightly increased, but not by much. It stays roughly between 1.4 to 3.7 metric tons.
+Petroleum: Petroleum forecast from 2022 has a pretty significant drop from our original data. The trend also seems to move downward while the boundary is slightly increased from 300 to 700 metric tons in 2022 to 200 to 750 metric tons in 2040.
+Numbers of EVs: Numbers of EVs forecast result has a slightly upward growing trend with the boundary increase from -50 to 200 in 2022 to -100 to 300 in 2040.  
+
+```{r, warning = FALSE, message = FALSE}
+# number of EV vehicle forecast
+plot(forecast(EVstimeseries,level=c(95), h=100*12),ylab="Number of EV vehical")
+
+# Annual GHG Emissions Reductions Co2 timeseries forecast
+ plot(forecast(CO2timeseries,level=c(95), h=100*12),,ylab="Annual GHG Emissions Reductions")
+
+# Annual Petroleum Reductions (gallons) forcast
+ plot(forecast(Petroltimeseries,level=c(95), h=100*12),,ylab="Annual Petroleum Reductions")
+
+```
+
+#Forecasts from ARIMA
+
+CO2: The ARIMA forecast does not show an obvious downward trend in CO2 reduction as the STL+ETS forecast did. The boundary has significantly increase from 2022’s 3 to 4 metrics tons to -1 to 8 metric tons
+Petroleum: The ARIMA Forecast result does not show an obvious downward trend in Petroleum reduction as the STL+ETS forecast did. The boundary has increase from 2022’s 200 to 700 metrics tons to 2040’s -500 to 1600 metric tons
+Numbers of EVs: Numbers of EVs forecast result has a small upward growing trend with the boundary increase from -100 to 100 in 2022 to -700 to 1000 in 2040. 
+
+
+```{r, warning = FALSE, message = FALSE}
+# number of EV vehicle forcast
+plot(arima.tmax_NumberOf_Vehical, lwd=3, bty="n", las=1, fg=NA, 
+	xlim=c(2017, 2040), ylab="Number of EV vehical")
+
+# Annual GHG Emissions Reductions Co2 timeserie
+plot(arima.tmax_CO2, lwd=3, bty="n", las=1, fg=NA, 
+	xlim=c(2017, 2040), ylab="Annual GHG Emissions Reductions (MT CO2e)")
+
+
+# Annual Petroleum Reductions (gallons) 
+ plot(arima.tmax, lwd=3, bty="n", las=1, fg=NA, 
+	xlim=c(2017, 2040), ylab="Annual Petroleum Reductions ")
+
+```
+
+#Forecasts from Holt-winter
+
+CO2: The Holt-winter forecast does not show an obvious downward trend line and the boundary seems to have increased from 2022’s 1.8 to 3.5 metric tons to 2028’s 1.7 to 3.6 metric tons.
+Petroleum: The Holt-winter Forecast result sees a significant drop from our original data but it is hard to tell if the reduction in petroleum is reducing from 2022 to 2028. The boundary has increase from 2022’s 300 to 640 metrics tons to 2028’s 250 to 700 metric tons
+Numbers of EVs: Numbers of EVs forecast results barely see any upward growing trend with the boundary increase from -40 to 230 in 2022 to -100 to 280 in 2040.
+
+
+```{r, warning = FALSE, message = FALSE}
+# number of EV vehicle forcast
+plot(forecast(rainseriesforecasts_NofVh, h=30*12), ylab="Number of EV vehical")
+
+# Annual GHG Emissions Reductions Co2 timeserie
+ plot(forecast(rainseriesforecasts_CO2,level=c(95), h=30*12), ylab="Annual GHG Emissions Reductions Co2")
+
+# Annual Petroleum Reductions (gallons) 
+
+ plot(forecast(rainseriesforecasts_petrol,level=c(95), h=30*12), ylab="Annual Petroleum Reductions")
+
+```
+
+
+## Discussion with respect to preliminary hypothesis
+
+In our hypothesis, we assume that the  increase in EVs will lead to a reduction in CO2 emissions and petroleum consumption since EVs use other energy sources to run. However, despite our prediction claims that both CO2 and Petroleum will decrease, we do not see an obvious downward trend for both CO2 and Petroleum across all of our forecasting approaches. The trend line seems to stabilize just below the current data’s  level. Perhaps this is because we have many missing data and we were adding averaged data to fill those gaps, causing room for errors. Also, our data only contains from 2017 to 2021. Perhaps the amount of data  that we have is insufficient to create accurate forecasts for 20 years. 
+
+## Drawbacks and limitations
+
+During the construction of the Geoplot, it was hard to analyze which EV is most sold in different counties in New York state because there are too many car makers and many of them have a similar color. During constructing the time series model, we have to fill in missing data with the averaging values,  this makes more room for error and hence creates the wrong prediction in the model. Moreover, our prediction is only based on New York state's data. Different states in the United States could yield very different outcomes and since our model is trained only with New York State’s data, using it to predict other states will be less accurate.
+ In performing time series for Annual Petroleum Reductions (gallons) and  Annual GHG Emissions Reductions CO2,  we had to take unique values from some specific data that create an average value for us to select. This way, each data will have an existing single value for the Annual CO2 reduction and Annual petroleum Reduction, which makes it easier to perform a time-series forecast.
+
+
+
+# **Conclusion**
+
+## Policy, Business, and Technology Implications and Future Directions
+
+There is an anticipated decline in CO2 emissions with an increase in EV purchases modeled through this project. This trend could have large implications for policy, business, and technology. From a policy standpoint, the global increase in CO2 emissions could lead to policies incentivizing the use of EVs given the anticipated emission reduction that will result. For businesses, this means a new focus in making EV charging more accessible for their employees, leading to an overall investment in EV charging technology. In addition, regulations on EV usage could require businesses that routinely make long trips, like shipping companies, to significantly alter their strategy taking into account new energy sources. From a technology standpoint, an increase in EV purchases means a larger investment in EV technology. This means more companies will enter this space, speeding up breakthroughs and the integration of EVs into everyday life. 
+
+This project could be expanded in multiple directions to increase the scope and depth of the work presented. Locations other than New York could be studied, leading to a better understanding of country-wide trends to target EV introduction to areas that are not utilizing that technology. In addition, the impact of EVs on other sectors of industry require more study. For example, using more EVs could strain New York’s power grid. Studying the effects of EVs on power availability would be key to finding the best ways to integrate EVs into a larger framework. 
+
+
+# **Appendix**
+
+# Number of EV vehicle 
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+```{r, warning = FALSE, message = FALSE}
+# data created for number of Ev with time
+head(historical_NumberOfEV)
+# sesonal value of data set
+plot(EVstimeseriesseasonallyadjusted)
+# vehicle pridicted
+ plot(rainseriesforecasts_NofVh)
+
+```
+
+
+# Annual Petroleum Reductions (gallons) 
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+```{r, warning = FALSE, message = FALSE}
+
+plot.ts(Petroltimeseries)
+
+plot(Petroltimeseriesseasonallyadjusted)
+
+plot(rainseriesforecasts_petrol)
+
+
+#linear model for Annual Petroleum Reductions (gallons)
+
+plot(Linear_model1_petrol)
+
+plot(predict(Linear_model1_petrol),reg.data4$`Annual Petroleum Reductions (gallons)`,xlab = "Predicted Values",ylab = "Observed Values")+
+abline(a = 0,b = 1,col = "red",lwd = 2)
+
+plot(cv.ridge1_petrol)
+coef(ridge.mod2_petrol)
+plot(Lasso_cv_model_petrol) 
+
+coef(lasso_best_model_petrol)
+
+```
+
+# Annual GHG Emissions Reductions (MT CO2e)
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+```{r, warning = FALSE, message = FALSE}
+# time data for Co2 and petrol reduce.
+head(historical_C_P)
+
+plot.ts(CO2timeseries)
+
+plot(CO2timeseriesseasonallyadjusted)
+
+plot(rainseriesforecasts_CO2)
+
+#Annual GHG Emissions Reductions (MT CO2e)
+
+
+plot(Liner_model1_CO2)
+
+plot(predict(Liner_model1_CO2),reg.data4$`Annual GHG Emissions Reductions (MT CO2e)`,xlab = "Predicted Values",ylab = "Observed Values")+
+abline(a = 0,b = 1, col = "red",lwd = 2)
+
+plot(cv.ridge1_CO2)
+coef(ridge.mod2_CO2)
+plot(Lasso_cv_model_CO2) 
+coef(Lasso_cv_model_CO2_best)
+
+summary(arima.model_CO2)
+```
+
+
+# **References**
+[1] https://www.nyserda.ny.gov/All-Programs/chargeny/support-electric/map-of-ev-registrations
+
+[2] https://www.statista.com/statistics/271537/worldwide-revenue-from-electric-vehicles-since-2010/
+
+[3] https://www.statista.com/statistics/244292/number-of-electric-vehicles-by-country/
+
+[4] https://www.statista.com/statistics/913958/projected-north-american-all-electric-vehicle-penetration-rate/
+
+[5] https://www.nyserda.ny.gov/About/Publications/NYSERDA-Annual-Reports-and-Financial-Statements
+
+[6] https://www.statista.com/statistics/1234803/transportation-share-total-co2-emissions-in-the-us-by-state/
+
+[7] https://www.statista.com/statistics/1010152/transportation-sector-co2-emissions-us-by-state/
+
+[8] https://www.ncsl.org/research/energy/state-electric-vehicle-incentives-state-chart.aspx
+
+[9] https://www.energy.gov/articles/president-biden-doe-and-dot-announce-5-billion-over-five-years-national-ev-charging
